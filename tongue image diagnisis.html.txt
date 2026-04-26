@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>臨床舌象影像分析專業版 - 本地安全科研型</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #f8fafc; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+        .canvas-container { position: relative; cursor: crosshair; overflow: hidden; background-color: #1e293b; }
+        #imageCanvas { border-radius: 4px; transition: cursor 0.2s; }
+        .feature-card { background: white; border-radius: 8px; padding: 1rem; border: 1px solid #e2e8f0; }
+        .loader { border-top-color: #3b82f6; animation: spinner 1.5s linear infinite; }
+        @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .preview-box canvas { width: 100%; height: 100%; object-fit: contain; }
+        .zoom-controls { position: absolute; bottom: 10px; right: 10px; display: flex; gap: 4px; z-index: 10; }
+        .zoom-btn { background: rgba(255,255,255,0.9); border: 1px solid #cbd5e1; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: #334155; }
+        .zoom-btn:hover { background: white; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-[1600px] mx-auto">
+        <!-- 頁首 -->
+        <header class="mb-8 border-b pb-4">
+            <h1 class="text-3xl font-bold text-slate-800">舌象特徵提取工具 <span class="text-indigo-600 text-lg">CLINICAL V2.1</span></h1>
+            <p class="text-slate-500 italic mt-1 text-sm">臨床研究專用 - 多維分析與精細化指標提取</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <!-- 左側控制面板 -->
+            <div class="lg:col-span-1 space-y-6">
+                <div class="feature-card shadow-sm">
+                    <h2 class="font-semibold mb-4 flex items-center gap-2 text-slate-700">
+                        <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        數據資訊
+                    </h2>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 uppercase mb-1">受試者編號</label>
+                            <input type="text" id="patientId" value="P-001" class="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 uppercase mb-1">影像編號</label>
+                            <input type="text" id="imageId" value="IMG-001" class="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none transition text-sm">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="feature-card shadow-sm space-y-4">
+                    <button onclick="document.getElementById('imageUpload').click()" class="w-full py-3 px-4 bg-slate-800 hover:bg-black text-white rounded-lg font-medium transition flex items-center justify-center gap-2 text-sm shadow-md">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M7 10l5 5m0 0l5-5m-5 5V3"></path></svg>
+                        選擇舌象影像
+                    </button>
+                    <input type="file" id="imageUpload" accept="image/*" class="hidden">
+                    
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="resetBtn" class="py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded-md text-sm transition font-medium">清除路徑</button>
+                        <button id="closeBtn" class="py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-md text-sm transition font-medium">閉合形狀</button>
+                    </div>
+                    <button id="analyzeBtn" disabled class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold transition disabled:opacity-50 shadow-lg tracking-wide">
+                        執行臨床分析
+                    </button>
+                </div>
+
+                <div class="bg-blue-50 border border-blue-200 p-4 rounded-lg text-xs text-blue-800">
+                    <p class="font-bold mb-1">🔍 標示說明：</p>
+                    <ul class="list-disc pl-4 space-y-1">
+                        <li><b>滑鼠左鍵</b>：標記邊緣點。</li>
+                        <li><b>滑鼠右鍵按住</b>：移動影像內容。</li>
+                        <li><b>滑鼠滾輪</b>：縮放影像大小。</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- 工作區 -->
+            <div class="lg:col-span-3">
+                <div class="bg-white rounded-xl shadow-lg p-4 border border-slate-200 min-h-[600px] flex flex-col">
+                    <div class="mb-2 flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-bold text-slate-500 uppercase tracking-widest">Segmentation Workspace</span>
+                            <span id="zoomDisplay" class="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500 font-mono">100%</span>
+                        </div>
+                        <div id="statusIndicator" class="text-[10px] px-2 py-1 rounded bg-slate-100 text-slate-600 font-bold uppercase">Ready</div>
+                    </div>
+                    
+                    <div class="canvas-container flex-1 rounded-lg flex items-center justify-center border-2 border-slate-200 shadow-inner">
+                        <canvas id="imageCanvas"></canvas>
+                        
+                        <div class="zoom-controls">
+                            <button onclick="handleZoom(1.2)" class="zoom-btn" title="放大">＋</button>
+                            <button onclick="handleZoom(0.8)" class="zoom-btn" title="縮小">－</button>
+                            <button onclick="resetZoom()" class="zoom-btn" title="重設視角">重設</button>
+                        </div>
+
+                        <div id="instructionOverlay" class="absolute inset-0 flex items-center justify-center pointer-events-none text-slate-400 px-8 text-center text-sm font-medium">
+                            上傳影像後可使用滾輪縮放與滑鼠移動視角
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4 flex gap-6 overflow-x-auto pb-2">
+                        <div class="flex flex-col items-center">
+                            <div id="hist-preview" class="preview-box w-48 h-24 bg-slate-100 rounded border overflow-hidden flex items-center justify-center text-[9px] text-slate-400">V Histogram</div>
+                            <span class="text-[9px] mt-1 text-slate-500 font-bold uppercase">Body Value Dist.</span>
+                        </div>
+                        <div class="flex flex-col items-center">
+                            <div id="mask-preview" class="preview-box w-32 h-24 bg-slate-100 rounded border overflow-hidden flex items-center justify-center text-[9px] text-slate-400 font-bold">ROI Mask</div>
+                            <span class="text-[9px] mt-1 text-slate-500 font-bold uppercase">Valid ROI</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 結果表格 -->
+        <div id="resultsSection" class="mt-8 hidden">
+            <div class="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+                <div class="p-4 bg-slate-50 border-b flex justify-between items-center">
+                    <h2 class="font-bold text-slate-800 text-sm uppercase tracking-wider">Clinical Feature Statistics (本地端計算結果)</h2>
+                    <button id="exportCsvBtn" class="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition text-xs font-bold shadow-md">
+                        DOWNLOAD CSV
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-[11px] border-collapse" id="resultsTable">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-600 uppercase text-[9px] font-bold tracking-widest">
+                                <th class="p-4 border-b">ID / 影像</th>
+                                <th class="p-4 border-b">純舌質 RGB (±Std)</th>
+                                <th class="p-4 border-b">純舌質 HSV (±Std)</th>
+                                <th class="p-4 border-b">總舌苔率 %</th>
+                                <th class="p-4 border-b">白苔率 %</th>
+                                <th class="p-4 border-b text-slate-400">淡黃 %</th>
+                                <th class="p-4 border-b text-amber-700 font-bold">黃苔率 %</th>
+                                <th class="p-4 border-b">裂紋率 %</th>
+                                <th class="p-4 border-b text-center">分類標籤</th>
+                                <th class="p-4 border-b">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultsBody" class="divide-y text-slate-700"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 處理中彈窗 -->
+    <div id="processingModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50">
+        <div class="bg-white p-8 rounded-xl shadow-2xl text-center max-w-xs w-full">
+            <div class="loader rounded-full border-4 border-t-4 border-slate-200 h-14 w-14 mb-4 mx-auto"></div>
+            <h3 class="text-lg font-bold text-slate-800">正在分析舌象特徵...</h3>
+            <p class="text-[11px] text-slate-500 mt-2 font-medium">執行本地端辨識與離群值過濾</p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('imageCanvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const imageUpload = document.getElementById('imageUpload');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const closeBtn = document.getElementById('closeBtn');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const instructionOverlay = document.getElementById('instructionOverlay');
+        const zoomDisplay = document.getElementById('zoomDisplay');
+        const resultsSection = document.getElementById('resultsSection');
+        const resultsBody = document.getElementById('resultsBody');
+        const exportCsvBtn = document.getElementById('exportCsvBtn');
+        const processingModal = document.getElementById('processingModal');
+        const histPreview = document.getElementById('hist-preview');
+        const maskPreviewBox = document.getElementById('mask-preview');
+
+        let originalImage = null, points = [], isClosed = false, analysisResults = [];
+        
+        // --- 縮放與平移狀態 ---
+        let scale = 1.0;
+        let offsetX = 0;
+        let offsetY = 0;
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+
+        // --- UI 事件綁定 ---
+        imageUpload.addEventListener('change', handleImageUpload);
+        canvas.addEventListener('mousedown', handleMouseDown);
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+        canvas.addEventListener('wheel', handleWheel, { passive: false });
+        canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+        resetBtn.addEventListener('click', () => { points = []; isClosed = false; redraw(); });
+        closeBtn.addEventListener('click', () => { if (points.length >= 3) { isClosed = true; redraw(); } });
+        analyzeBtn.addEventListener('click', runAnalysis);
+        exportCsvBtn.addEventListener('click', exportToCsv);
+
+        function handleImageUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const img = new Image();
+                img.onload = () => {
+                    originalImage = img;
+                    points = []; 
+                    isClosed = false;
+                    resetZoom();
+                    statusIndicator.innerText = "IMAGE LOADED";
+                    instructionOverlay.style.display = 'none';
+                };
+                img.src = ev.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function setupCanvas(img) {
+            const container = canvas.parentElement;
+            const maxW = container.clientWidth - 40;
+            const maxH = 550;
+            let w = img.width, h = img.height;
+            if (w > maxW) { h *= maxW / w; w = maxW; }
+            if (h > maxH) { w *= maxH / h; h = maxH; }
+            canvas.width = w; canvas.height = h;
+        }
+
+        // --- 互動邏輯 ---
+
+        function handleMouseDown(e) {
+            if (!originalImage) return;
+            if (e.button === 2) {
+                isDragging = true;
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+                canvas.style.cursor = 'grabbing';
+                return;
+            }
+            if (e.button === 0 && !isClosed) {
+                const coord = getOriginalCoordinates(e.clientX, e.clientY);
+                points.push(coord);
+                redraw();
+            }
+        }
+
+        function handleMouseMove(e) {
+            if (isDragging) {
+                const dx = e.clientX - lastMouseX;
+                const dy = e.clientY - lastMouseY;
+                offsetX += dx / scale;
+                offsetY += dy / scale;
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+                redraw();
+            }
+        }
+
+        function handleMouseUp() {
+            isDragging = false;
+            canvas.style.cursor = 'crosshair';
+        }
+
+        function handleWheel(e) {
+            if (!originalImage) return;
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            handleZoom(delta, e.clientX, e.clientY);
+        }
+
+        function handleZoom(delta, clientX, clientY) {
+            if (!originalImage) return;
+            const prevScale = scale;
+            scale *= delta;
+            scale = Math.min(Math.max(scale, 0.5), 10);
+            if (clientX !== undefined && clientY !== undefined) {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = (clientX - rect.left) / prevScale;
+                const mouseY = (clientY - rect.top) / prevScale;
+                offsetX -= mouseX * (scale/prevScale - 1) / (scale/prevScale);
+                offsetY -= mouseY * (scale/prevScale - 1) / (scale/prevScale);
+            }
+            zoomDisplay.innerText = `${Math.round(scale * 100)}%`;
+            redraw();
+        }
+
+        function resetZoom() {
+            if (!originalImage) return;
+            setupCanvas(originalImage);
+            scale = 1.0;
+            offsetX = 0;
+            offsetY = 0;
+            zoomDisplay.innerText = `100%`;
+            redraw();
+        }
+
+        function getOriginalCoordinates(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            let x = (clientX - rect.left) / scale - offsetX;
+            let y = (clientY - rect.top) / scale - offsetY;
+            return { x, y };
+        }
+
+        function redraw() {
+            if (!originalImage) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.scale(scale, scale);
+            ctx.translate(offsetX, offsetY);
+            ctx.drawImage(originalImage, 0, 0, canvas.width, canvas.height);
+            if (points.length > 0) {
+                ctx.beginPath();
+                ctx.moveTo(points[0].x, points[0].y);
+                points.forEach(p => ctx.lineTo(p.x, p.y));
+                if (isClosed) {
+                    ctx.closePath();
+                    ctx.fillStyle = 'rgba(79, 70, 229, 0.2)';
+                    ctx.fill();
+                }
+                ctx.strokeStyle = '#facc15';
+                ctx.lineWidth = 2.5 / scale;
+                ctx.stroke();
+                ctx.fillStyle = '#ef4444';
+                points.forEach(p => {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 4.5 / scale, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 1 / scale;
+                    ctx.stroke();
+                });
+            }
+            ctx.restore();
+            analyzeBtn.disabled = !isClosed;
+        }
+
+        // --- 核心運算法 (本地端處理) ---
+
+        function rgbToHsv(r, g, b) {
+            r/=255; g/=255; b/=255; 
+            const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max-min;
+            let h, s, v = max; s = max === 0 ? 0 : d / max;
+            if (max === min) h = 0;
+            else {
+                if(max===r) h=(g-b)/d+(g<b?6:0); else if(max===g) h=(b-r)/d+2; else h=(r-g)/d+4;
+                h/=6;
+            }
+            return { h, s, v };
+        }
+
+        function getIQRRange(arr) {
+            if (arr.length === 0) return { min: 0, max: 1 };
+            const sorted = [...arr].sort((a, b) => a - b);
+            const q1 = sorted[Math.floor(sorted.length * 0.25)];
+            const q3 = sorted[Math.floor(sorted.length * 0.75)];
+            const iqr = q3 - q1;
+            return { min: q1 - 1.5 * iqr, max: q3 + 1.5 * iqr };
+        }
+
+        function calculateCircularMean(hues) {
+            if (hues.length === 0) return 0;
+            let sumSin = 0, sumCos = 0;
+            for (let h of hues) {
+                const rad = h * 2 * Math.PI;
+                sumSin += Math.sin(rad); sumCos += Math.cos(rad);
+            }
+            let avgH = Math.atan2(sumSin / hues.length, sumCos / hues.length) / (2 * Math.PI);
+            if (avgH < 0) avgH += 1;
+            return avgH;
+        }
+
+        function calculateStats(arr) {
+            if (arr.length === 0) return { mean: 0, std: 0 };
+            const n = arr.length;
+            const mean = arr.reduce((a, b) => a + b, 0) / n;
+            const std = Math.sqrt(arr.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / n);
+            return { mean, std };
+        }
+
+        function createMask(w, h, pts) {
+            const temp = document.createElement('canvas');
+            temp.width = w; temp.height = h;
+            const tCtx = temp.getContext('2d');
+            tCtx.beginPath(); tCtx.moveTo(pts[0].x, pts[0].y);
+            pts.forEach(p => tCtx.lineTo(p.x, p.y));
+            tCtx.closePath(); tCtx.fillStyle = 'white'; tCtx.fill();
+            return tCtx.getImageData(0, 0, w, h).data;
+        }
+
+        function calculateFeatures(imgData, mask) {
+            const data = imgData.data, w = imgData.width, h = imgData.height;
+            let roiPixelsCount = 0;
+            const grid = new Int8Array(w * h).fill(-1);
+
+            for (let i = 0; i < data.length; i += 4) {
+                const idx = i / 4;
+                if (mask[i] > 128) {
+                    roiPixelsCount++;
+                    const r = data[i], g = data[i+1], b = data[i+2];
+                    const hsv = rgbToHsv(r, g, b);
+                    if (hsv.v > 0.92 || (hsv.h >= 0.52 && hsv.h <= 0.78)) {
+                        grid[idx] = 5; continue;
+                    }
+                    const isYellowHue = (hsv.h >= 0.05 && hsv.h <= 0.21);
+                    if (isYellowHue && hsv.s > 0.48 && hsv.v > 0.50) grid[idx] = 2;
+                    else if (isYellowHue && hsv.s >= 0.30 && hsv.s <= 0.48 && hsv.v > 0.45) grid[idx] = 6;
+                    else if (isYellowHue && hsv.s >= 0.22 && hsv.s < 0.30 && hsv.v > 0.50) grid[idx] = 3;
+                    else if (hsv.s < 0.28 && hsv.v > 0.62) grid[idx] = 1;
+                    else if (hsv.v < 0.35) grid[idx] = 4;
+                    else grid[idx] = 0;
+                }
+            }
+
+            let finalWhite = 0, finalDeepYellow = 0, finalModerateYellow = 0, finalUncertain = 0, finalCrack = 0;
+            const bodyPixels = [];
+            for (let i = 0; i < w * h; i++) {
+                if (grid[i] === -1 || grid[i] === 5) continue;
+                const type = grid[i];
+                if (type === 0) { 
+                    const bI = i * 4;
+                    bodyPixels.push({ r: data[bI], g: data[bI+1], b: data[bI+2], hsv: rgbToHsv(data[bI], data[bI+1], data[bI+2]) });
+                    continue;
+                }
+                const x = i % w, y = Math.floor(i / w);
+                let ns = 0;
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nx = x + dx, ny = y + dy;
+                        if (nx >= 0 && nx < w && ny >= 0 && ny < h && grid[ny * w + nx] === type) ns++;
+                    }
+                }
+                if (ns >= 2) {
+                    if (type === 1) finalWhite++; else if (type === 2) finalDeepYellow++; else if (type === 6) finalModerateYellow++; else if (type === 3) finalUncertain++; else if (type === 4) finalCrack++;
+                } else {
+                    const bI = i * 4;
+                    bodyPixels.push({ r: data[bI], g: data[bI+1], b: data[bI+2], hsv: rgbToHsv(data[bI], data[bI+1], data[bI+2]) });
+                }
+            }
+
+            if (bodyPixels.length < 20) return null;
+
+            const hR = getIQRRange(bodyPixels.map(p => p.hsv.h));
+            const sR = getIQRRange(bodyPixels.map(p => p.hsv.s));
+            const vR = getIQRRange(bodyPixels.map(p => p.hsv.v));
+            const finalBody = bodyPixels.filter(p => p.hsv.h >= hR.min && p.hsv.h <= hR.max && p.hsv.s >= sR.min && p.hsv.s <= sR.max && p.hsv.v >= vR.min && p.hsv.v <= vR.max);
+            
+            const meanH = calculateCircularMean(finalBody.map(p => p.hsv.h));
+            const statS = calculateStats(finalBody.map(p => p.hsv.s));
+            const statV = calculateStats(finalBody.map(p => p.hsv.v));
+            const statR = calculateStats(finalBody.map(p => p.r));
+            const statG = calculateStats(finalBody.map(p => p.g));
+            const statB = calculateStats(finalBody.map(p => p.b));
+
+            const yellowCoatingSum = finalModerateYellow + finalDeepYellow;
+            const totalCoatingVal = ((finalWhite + yellowCoatingSum) / roiPixelsCount * 100);
+            let pattern = "少苔 (Scanty)";
+            if (totalCoatingVal > 35) pattern = "厚苔 (Thick)"; else if (totalCoatingVal >= 15) pattern = "薄苔 (Thin)";
+
+            return {
+                id: Date.now(), patientId: document.getElementById('patientId').value, imageId: document.getElementById('imageId').value,
+                rgb_mean: [statR.mean, statG.mean, statB.mean], rgb_std: [statR.std, statG.std, statB.std],
+                hsv_val: [meanH * 360, statS.mean * 100, statV.mean * 100], hsv_std: [0, statS.std * 100, statV.std * 100],
+                total_coating: totalCoatingVal.toFixed(1) + "%", white_coating: (finalWhite / roiPixelsCount * 100).toFixed(1) + "%",
+                yellow_coating: (yellowCoatingSum / roiPixelsCount * 100).toFixed(1) + "%", 
+                uncertain: (finalUncertain / roiPixelsCount * 100).toFixed(1) + "%",
+                crack_area: (finalCrack / roiPixelsCount * 100).toFixed(1) + "%", 
+                pattern, timestamp: new Date().toLocaleString(), vals: finalBody.map(p => p.hsv.v)
+            };
+        }
+
+        function runAnalysis() {
+            if (!isClosed || !originalImage) return;
+            processingModal.classList.remove('hidden');
+            setTimeout(() => {
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const maskData = createMask(canvas.width, canvas.height, points);
+                const stats = calculateFeatures(imgData, maskData);
+                if (stats) {
+                    updatePreviews(maskData, stats.vals, canvas.width, canvas.height);
+                    addResultToTable(stats);
+                    resultsSection.classList.remove('hidden');
+                    resultsSection.scrollIntoView({ behavior: 'smooth' });
+                } else { alert("分析失敗，有效數據不足。"); }
+                processingModal.classList.add('hidden');
+            }, 600);
+        }
+
+        function updatePreviews(mask, vals, w, h) {
+            maskPreviewBox.innerHTML = '';
+            const mCanvas = document.createElement('canvas'); mCanvas.width = w; mCanvas.height = h;
+            const mCtx = mCanvas.getContext('2d'); const mData = mCtx.createImageData(w, h);
+            for(let i=0; i<mask.length; i+=4) { const v = mask[i]; mData.data[i] = v; mData.data[i+1] = v; mData.data[i+2] = v; mData.data[i+3] = 255; }
+            mCtx.putImageData(mData, 0, 0); maskPreviewBox.appendChild(mCanvas);
+            histPreview.innerHTML = '';
+            const hCanvas = document.createElement('canvas'); hCanvas.width = 256; hCanvas.height = 100;
+            const hCtx = hCanvas.getContext('2d'); const bins = new Array(256).fill(0);
+            vals.forEach(v => bins[Math.floor(v * 255)]++);
+            const max = Math.max(...bins) || 1; hCtx.strokeStyle = '#4f46e5'; hCtx.lineWidth = 2; hCtx.beginPath();
+            bins.forEach((count, i) => { const x = i; const y = 100 - (count / max * 100); if(i===0) hCtx.moveTo(x, y); else hCtx.lineTo(x, y); });
+            hCtx.stroke(); histPreview.appendChild(hCanvas);
+        }
+
+        function addResultToTable(res) {
+            analysisResults.push(res);
+            const row = document.createElement('tr'); row.id = `row-${res.id}`;
+            row.className = "hover:bg-indigo-50/30 transition border-l-4 border-transparent hover:border-indigo-400";
+            row.innerHTML = `
+                <td class="p-4"><div class="font-bold text-slate-900">${res.patientId}</div><div class="text-[9px] text-slate-400 font-bold">${res.imageId}</div></td>
+                <td class="p-4 font-mono text-slate-600">R:${res.rgb_mean[0].toFixed(1)} ±${res.rgb_std[0].toFixed(1)}<br>G:${res.rgb_mean[1].toFixed(1)} ±${res.rgb_std[1].toFixed(1)}<br>B:${res.rgb_mean[2].toFixed(1)} ±${res.rgb_std[2].toFixed(1)}</td>
+                <td class="p-4 font-mono text-slate-600">H:${res.hsv_val[0].toFixed(1)}°<br>S:${res.hsv_val[1].toFixed(1)}% ±${res.hsv_std[1].toFixed(1)}<br>V:${res.hsv_val[2].toFixed(1)}% ±${res.hsv_std[2].toFixed(1)}</td>
+                <td class="p-4 font-bold text-slate-900 text-center">${res.total_coating}</td>
+                <td class="p-4 text-slate-600 text-center">${res.white_coating}</td>
+                <td class="p-4 text-slate-400 italic text-center">${res.uncertain}</td>
+                <td class="p-4 text-amber-700 font-bold text-center">${res.yellow_coating}</td>
+                <td class="p-4 text-slate-500 font-semibold text-center">${res.crack_area}</td>
+                <td class="p-4 text-center"><span class="px-2 py-1 rounded-full bg-slate-100 text-[10px] font-bold text-slate-600 border">${res.pattern}</span></td>
+                <td class="p-4 text-center"><button onclick="deleteRecord(${res.id})" class="text-red-400 hover:text-red-600"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button></td>`;
+            resultsBody.prepend(row);
+        }
+
+        function deleteRecord(id) { analysisResults = analysisResults.filter(r => r.id !== id); document.getElementById(`row-${id}`).remove(); }
+
+        function exportToCsv() {
+            if (analysisResults.length === 0) return;
+            const headers = ["PatientID", "ImageID", "Body_R", "Body_G", "Body_B", "Body_H", "Body_S", "Body_V", "TotalCoating", "White", "LightYellow", "Yellow", "Crack", "Pattern", "Timestamp"];
+            let csv = "\uFEFF" + headers.join(",") + "\n";
+            analysisResults.forEach(res => {
+                csv += [res.patientId, res.imageId, ...res.rgb_mean, ...res.hsv_val, res.total_coating, res.white_coating, res.uncertain, res.yellow_coating, res.crack_area, res.pattern, `"${res.timestamp}"`].join(",") + "\n";
+            });
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = `local_tongue_data_${Date.now()}.csv`; a.click();
+        }
+    </script>
+</body>
+</html>
